@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Net Worth (Notion)</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --card-bg: #1e1f24;
+      --card-border: #2a2b31;
+      --text: #f2f3f5;
+      --muted: #a6a8ad;
+      --pill-bg: #2a2b31;
+      --pill-active: #111216;
+      --accent: #8b5cf6; /* roxinho do título/ícone */
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 24px;
+      background: #0e1013; color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      display: grid; place-items: center;
+    }
+    .card {
+      width: 340px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    .row { display:flex; align-items:center; justify-content:space-between; }
+    .title { display:flex; align-items:center; gap:8px; font-weight:600;}
+    .title-icon {
+      width:24px; height:24px; border-radius:6px; background: var(--accent);
+      display:grid; place-items:center; color:white; font-weight:900; font-size:13px;
+    }
+    .amount { font-size: 28px; font-weight: 800; margin-top: 2px; }
+    .pills {
+      margin-top: 10px; display:flex; gap:8px; background:#14151a; padding:4px; border-radius:10px;
+      border:1px solid var(--card-border);
+    }
+    .pill {
+      padding:6px 10px; border-radius:8px; font-size:12px; color:var(--muted);
+      background: transparent; border:none; cursor: default;
+    }
+    .pill.active { background: var(--pill-active); color: var(--text); }
+    .chart-wrap { width: 100%; display:grid; place-items:center; padding: 12px 0 4px; }
+    canvas { max-width: 240px; max-height: 240px; }
+    .legend {
+      margin-top: 10px; display:flex; flex-direction:column; gap:6px; font-size:12px;
+      color: var(--muted);
+    }
+    .legend-item { display:flex; align-items:center; gap:8px; }
+    .dot {
+      width:10px; height:10px; border-radius:50%;
+      border: 2px solid rgba(255,255,255,.25);
+    }
+    .label { color: var(--text); }
+    .right { margin-left:auto; opacity:.9; }
+    .muted { color: var(--muted); }
+    .error { color: #ff8080; font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="row">
+      <div class="title">
+        <div class="title-icon">₿</div>
+        <div>
+          <div class="muted">Net Worth</div>
+          <div class="amount" id="amount">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pills" aria-label="filtro (decorativo)">
+      <button class="pill active">By Account</button>
+      <button class="pill" disabled>By Tag</button>
+    </div>
+
+    <div class="chart-wrap">
+      <canvas id="donut"></canvas>
+    </div>
+
+    <div id="legend" class="legend"></div>
+    <div id="error" class="error" hidden></div>
+  </div>
+
+  <script>
+    const LOCALE = 'pt-BR';           // mude para 'en-US' se quiser
+    const CURRENCY = 'BRL';           // mude para 'USD', etc.
+    const API_URL = '/api/networth';  // nosso endpoint do backend
+
+    const amountEl = document.getElementById('amount');
+    const legendEl = document.getElementById('legend');
+    const errorEl  = document.getElementById('error');
+    const ctx = document.getElementById('donut').getContext('2d');
+
+    function money(n) {
+      return n.toLocaleString(LOCALE, { style: 'currency', currency: CURRENCY });
+    }
+    function percent(n) {
+      return `${(n * 100).toFixed(2)}%`;
+    }
+
+    let chart;
+    function renderChart(labels, data) {
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels,
+          datasets: [{
+            data,
+            // cores deixadas padrão do Chart.js
+            borderWidth: 2,
+            hoverOffset: 6,
+          }]
+        },
+        options: {
+          cutout: '65%',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const total = ctx.dataset.data.reduce((a,b)=>a+b,0);
+                  const val = ctx.parsed;
+                  return ` ${ctx.label}: ${money(val)} (${percent(val/total)})`;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function renderLegend(labels, values, total) {
+      legendEl.innerHTML = '';
+      const bg = chart.data.datasets[0].backgroundColor ||
+                 chart.getDatasetMeta(0).controller._cachedMeta?._parsed;
+      labels.forEach((label, i) => {
+        const li = document.createElement('div');
+        li.className = 'legend-item';
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        // pega a cor da própria chart instance
+        const color = chart.data.datasets[0].backgroundColor?.[i]
+          || chart._metasets?.[0]?.controller?.getStyle(i, false).backgroundColor
+          || 'gray';
+        dot.style.background = color;
+
+        const name = document.createElement('span');
+        name.className = 'label';
+        name.textContent = label;
+
+        const right = document.createElement('span');
+        right.className = 'right';
+        right.textContent = `${percent(values[i]/total)} • ${money(values[i])}`;
+
+        li.appendChild(dot);
+        li.appendChild(name);
+        li.appendChild(right);
+        legendEl.appendChild(li);
+      });
+    }
+
+    async function load() {
+      try {
+        const resp = await fetch(API_URL);
+        if (!resp.ok) throw new Error('Falha ao buscar dados');
+        const json = await resp.json();
+        const total = json.total || 0;
+        const labels = Object.keys(json.groups || {});
+        const values = labels.map(k => json.groups[k]);
+
+        amountEl.textContent = money(total);
+        renderChart(labels, values);
+        renderLegend(labels, values, total);
+      } catch (e) {
+        console.error(e);
+        errorEl.hidden = false;
+        errorEl.textContent = 'Não consegui carregar dados. Verifique backend/credenciais.';
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>
